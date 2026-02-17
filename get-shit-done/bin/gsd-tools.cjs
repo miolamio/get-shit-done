@@ -631,11 +631,20 @@ function cmdConfigEnsureSection(cwd, raw) {
     },
     parallelization: true,
     brave_search: hasBraveSearch,
+    playwright: {
+      enabled: false,
+      ui_verification: true,
+      e2e_generation: true,
+      dev_server_command: 'npm run dev',
+      dev_server_port: 3000,
+      base_url: 'http://localhost:3000',
+    },
   };
   const defaults = {
     ...hardcoded,
     ...userDefaults,
     workflow: { ...hardcoded.workflow, ...(userDefaults.workflow || {}) },
+    playwright: { ...hardcoded.playwright, ...(userDefaults.playwright || {}) },
   };
 
   try {
@@ -3854,6 +3863,14 @@ function cmdValidateHealth(cwd, options, raw) {
               plan_checker: true,
               verifier: true,
               parallelization: true,
+              playwright: {
+                enabled: false,
+                ui_verification: true,
+                e2e_generation: true,
+                dev_server_command: 'npm run dev',
+                dev_server_port: 3000,
+                base_url: 'http://localhost:3000',
+              },
             };
             fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'config.json' });

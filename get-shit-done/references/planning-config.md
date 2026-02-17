@@ -12,6 +12,14 @@ Configuration options for `.planning/` directory behavior.
   "branching_strategy": "none",
   "phase_branch_template": "gsd/phase-{phase}-{slug}",
   "milestone_branch_template": "gsd/{milestone}-{slug}"
+},
+"playwright": {
+  "enabled": false,
+  "ui_verification": true,
+  "e2e_generation": true,
+  "dev_server_command": "npm run dev",
+  "dev_server_port": 3000,
+  "base_url": "http://localhost:3000"
 }
 ```
 
@@ -22,6 +30,12 @@ Configuration options for `.planning/` directory behavior.
 | `git.branching_strategy` | `"none"` | Git branching approach: `"none"`, `"phase"`, or `"milestone"` |
 | `git.phase_branch_template` | `"gsd/phase-{phase}-{slug}"` | Branch template for phase strategy |
 | `git.milestone_branch_template` | `"gsd/{milestone}-{slug}"` | Branch template for milestone strategy |
+| `playwright.enabled` | `false` | Master toggle for Playwright integration |
+| `playwright.ui_verification` | `true` | Enable screenshot-based UI verification after execution |
+| `playwright.e2e_generation` | `true` | Generate E2E test stubs alongside plans |
+| `playwright.dev_server_command` | `"npm run dev"` | Command to start the dev server for testing |
+| `playwright.dev_server_port` | `3000` | Port the dev server listens on |
+| `playwright.base_url` | `"http://localhost:3000"` | Base URL for Playwright tests |
 </config_schema>
 
 <commit_docs_behavior>
@@ -192,5 +206,49 @@ Squash merge is recommended — keeps main branch history clean while preserving
 | `milestone` | Release branches, staging environments, PR per version |
 
 </branching_strategy_behavior>
+
+<playwright_behavior>
+
+**Playwright Integration:**
+
+The `playwright` section controls automated browser testing integration within GSD workflows.
+
+**When `playwright.enabled: false` (default):**
+- No Playwright operations are performed
+- UI verification and E2E generation steps are skipped
+- All other `playwright.*` settings are ignored
+
+**When `playwright.enabled: true`:**
+- `ui_verification: true` — Verifier agent captures screenshots and compares UI state after execution
+- `e2e_generation: true` — Planner generates E2E test stubs alongside task plans
+- `dev_server_command` — Shell command used to start the development server (e.g., `npm run dev`, `yarn dev`)
+- `dev_server_port` — Port to wait for before running tests
+- `base_url` — Root URL passed to Playwright test configuration
+
+**Configuring via config-set:**
+
+```bash
+# Enable Playwright integration
+node ~/.claude/get-shit-done/bin/gsd-tools.cjs config-set playwright.enabled true
+
+# Change the dev server command
+node ~/.claude/get-shit-done/bin/gsd-tools.cjs config-set playwright.dev_server_command "yarn dev"
+
+# Change port and base URL
+node ~/.claude/get-shit-done/bin/gsd-tools.cjs config-set playwright.dev_server_port 5173
+node ~/.claude/get-shit-done/bin/gsd-tools.cjs config-set playwright.base_url "http://localhost:5173"
+```
+
+**Use cases:**
+
+| Setting | When to change |
+|---------|---------------|
+| `dev_server_command` | Non-npm projects, custom scripts, framework CLIs (e.g., `vite`, `next dev`) |
+| `dev_server_port` | Vite (5173), Next.js (3000), custom ports |
+| `base_url` | HTTPS local dev, custom hostnames, path prefixes |
+| `ui_verification` | Disable if project has no UI or uses a different visual testing tool |
+| `e2e_generation` | Disable if E2E tests are written manually or use a different framework |
+
+</playwright_behavior>
 
 </planning_config>
