@@ -171,6 +171,7 @@ function loadConfig(cwd) {
     verifier: true,
     parallelization: true,
     brave_search: false,
+    language: 'english',
   };
 
   try {
@@ -204,6 +205,7 @@ function loadConfig(cwd) {
       verifier: get('verifier', { section: 'workflow', field: 'verifier' }) ?? defaults.verifier,
       parallelization,
       brave_search: get('brave_search') ?? defaults.brave_search,
+      language: get('language') ?? defaults.language,
     };
   } catch {
     return defaults;
@@ -619,6 +621,7 @@ function cmdConfigEnsureSection(cwd, raw) {
   // Create default config (user-level defaults override hardcoded defaults)
   const hardcoded = {
     model_profile: 'balanced',
+    language: 'english',
     commit_docs: true,
     search_gitignored: false,
     branching_strategy: 'none',

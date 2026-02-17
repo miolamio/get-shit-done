@@ -27,6 +27,17 @@ const hasBoth = args.includes('--both'); // Legacy flag, keeps working
 const hasAll = args.includes('--all');
 const hasUninstall = args.includes('--uninstall') || args.includes('-u');
 
+// Language selection via --lang flag
+const langFlagIndex = args.findIndex(arg => arg === '--lang');
+const langFlagValue = (() => {
+  if (langFlagIndex !== -1 && args[langFlagIndex + 1] && !args[langFlagIndex + 1].startsWith('-')) {
+    return args[langFlagIndex + 1];
+  }
+  const langArg = args.find(arg => arg.startsWith('--lang='));
+  if (langArg) return langArg.split('=')[1] || null;
+  return null;
+})();
+
 // Runtime selection - can be set by flags or interactive prompt
 let selectedRuntimes = [];
 if (hasAll) {
@@ -1653,6 +1664,85 @@ function handleStatusline(settings, isInteractive, callback) {
 }
 
 /**
+ * Save language preference to ~/.gsd/defaults.json
+ */
+function saveLanguageDefault(language) {
+  const homedir = os.homedir();
+  const gsdDir = path.join(homedir, '.gsd');
+  const defaultsPath = path.join(gsdDir, 'defaults.json');
+
+  // Ensure ~/.gsd directory exists
+  if (!fs.existsSync(gsdDir)) {
+    fs.mkdirSync(gsdDir, { recursive: true });
+  }
+
+  // Load existing defaults or start fresh
+  let defaults = {};
+  try {
+    if (fs.existsSync(defaultsPath)) {
+      defaults = JSON.parse(fs.readFileSync(defaultsPath, 'utf-8'));
+    }
+  } catch {
+    defaults = {};
+  }
+
+  defaults.language = language;
+  fs.writeFileSync(defaultsPath, JSON.stringify(defaults, null, 2) + '\n');
+  console.log(`  ${green}✓${reset} Language set to ${cyan}${language}${reset} ${dim}(~/.gsd/defaults.json)${reset}`);
+}
+
+/**
+ * Prompt for language selection
+ */
+function promptLanguage(callback) {
+  if (!process.stdin.isTTY) {
+    callback('english');
+    return;
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  let answered = false;
+
+  rl.on('close', () => {
+    if (!answered) {
+      answered = true;
+      console.log(`\n  ${yellow}Installation cancelled${reset}\n`);
+      process.exit(0);
+    }
+  });
+
+  console.log(`\n  ${yellow}What language should GSD communicate in?${reset}\n
+  ${cyan}1${reset}) English
+  ${cyan}2${reset}) Русский  ${dim}(Russian)${reset}
+  ${cyan}3${reset}) Español  ${dim}(Spanish)${reset}
+  ${cyan}4${reset}) Français ${dim}(French)${reset}
+  ${cyan}5${reset}) Deutsch  ${dim}(German)${reset}
+
+  ${dim}Or type a language name (e.g. "italian", "japanese")${reset}
+`);
+
+  rl.question(`  Choice ${dim}[1]${reset}: `, (answer) => {
+    answered = true;
+    rl.close();
+    const choice = answer.trim() || '1';
+    const languages = {
+      '1': 'english',
+      '2': 'russian',
+      '3': 'spanish',
+      '4': 'french',
+      '5': 'german',
+    };
+    const finalLang = languages[choice] || choice;
+    saveLanguageDefault(finalLang);
+    callback(finalLang);
+  });
+}
+
+/**
  * Prompt for runtime selection
  */
 function promptRuntime(callback) {
@@ -1797,6 +1887,7 @@ if (hasGlobal && hasLocal) {
     uninstall(hasGlobal, runtime);
   }
 } else if (selectedRuntimes.length > 0) {
+  if (langFlagValue) saveLanguageDefault(langFlagValue);
   if (!hasGlobal && !hasLocal) {
     promptLocation(selectedRuntimes);
   } else {
@@ -1804,15 +1895,24 @@ if (hasGlobal && hasLocal) {
   }
 } else if (hasGlobal || hasLocal) {
   // Default to Claude if no runtime specified but location is
+  if (langFlagValue) saveLanguageDefault(langFlagValue);
   installAllRuntimes(['claude'], hasGlobal, false);
 } else {
   // Interactive
   if (!process.stdin.isTTY) {
+    if (langFlagValue) saveLanguageDefault(langFlagValue);
     console.log(`  ${yellow}Non-interactive terminal detected, defaulting to Claude Code global install${reset}\n`);
     installAllRuntimes(['claude'], true, false);
   } else {
     promptRuntime((runtimes) => {
-      promptLocation(runtimes);
+      if (langFlagValue) {
+        saveLanguageDefault(langFlagValue);
+        promptLocation(runtimes);
+      } else {
+        promptLanguage(() => {
+          promptLocation(runtimes);
+        });
+      }
     });
   }
 }
