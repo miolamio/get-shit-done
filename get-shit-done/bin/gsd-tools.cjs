@@ -2532,6 +2532,109 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
   }, raw, verified === results.length ? 'valid' : 'invalid');
 }
 
+// ─── Verify Plan Steps ────────────────────────────────────────────────────────
+
+function cmdVerifyPlanSteps(cwd, planPath, raw) {
+  if (!planPath) { error('plan file path required'); }
+  const fullPath = path.isAbsolute(planPath) ? planPath : path.join(cwd, planPath);
+  const content = safeReadFile(fullPath);
+  if (!content) { output({ error: 'File not found', path: planPath }, raw); return; }
+  const errors = [];
+  const tasks = [];
+
+  // Parse <task> elements (same regex pattern as cmdVerifyPlanStructure)
+  const taskPattern = /<task[^>]*>([\s\S]*?)<\/task>/g;
+  let taskMatch;
+  while ((taskMatch = taskPattern.exec(content)) !== null) {
+    const taskContent = taskMatch[1];
+    const nameMatch = taskContent.match(/<name>([\s\S]*?)<\/name>/);
+    const taskName = nameMatch ? nameMatch[1].trim() : 'unnamed';
+
+    const steps = [];
+
+    // Parse optional <steps> block inside the task
+    const stepsBlockMatch = taskContent.match(/<steps>([\s\S]*?)<\/steps>/);
+    if (stepsBlockMatch) {
+      const stepsContent = stepsBlockMatch[1];
+      // Parse individual <step> elements
+      const stepPattern = /<step([^>]*)>([\s\S]*?)<\/step>/g;
+      let stepMatch;
+      while ((stepMatch = stepPattern.exec(stepsContent)) !== null) {
+        const attrs = stepMatch[1];
+        const stepContent = stepMatch[2].trim();
+
+        // Extract name attribute
+        const nameAttr = attrs.match(/name=["']([^"']+)["']/);
+        // Extract verify attribute
+        const verifyAttr = attrs.match(/verify=["']([^"']+)["']/);
+
+        if (!nameAttr) {
+          errors.push(`Task '${taskName}': step missing required 'name' attribute`);
+        }
+
+        steps.push({
+          name: nameAttr ? nameAttr[1] : null,
+          verify: verifyAttr ? verifyAttr[1] : null,
+          content: stepContent,
+        });
+      }
+    }
+
+    tasks.push({ name: taskName, steps });
+  }
+
+  output({
+    valid: errors.length === 0,
+    errors,
+    task_count: tasks.length,
+    tasks,
+  }, raw, errors.length === 0 ? 'valid' : 'invalid');
+}
+
+// ─── Trace Append ─────────────────────────────────────────────────────────────
+
+function cmdTraceAppend(cwd, options, raw) {
+  if (!options.phase) { error('--phase required for trace append'); }
+  if (!options.plan) { error('--plan required for trace append'); }
+  if (!options.task) { error('--task required for trace append'); }
+  if (!options.status) { error('--status required for trace append'); }
+
+  const tracesDir = path.join(cwd, '.planning', 'phases', options.phase, 'traces');
+  fs.mkdirSync(tracesDir, { recursive: true });
+
+  const traceFile = path.join(tracesDir, `${options.plan}-trace.json`);
+  const relPath = path.relative(cwd, traceFile);
+
+  // Read existing trace entries or start fresh
+  let entries = [];
+  if (fs.existsSync(traceFile)) {
+    try {
+      entries = JSON.parse(fs.readFileSync(traceFile, 'utf-8'));
+    } catch {
+      entries = [];
+    }
+  }
+
+  // Build trace entry
+  const entry = {
+    timestamp: new Date().toISOString(),
+    task: options.task,
+    step: options.step || null,
+    duration: options.duration ? parseInt(options.duration, 10) : null,
+    commit: options.commit || null,
+    status: options.status,
+  };
+
+  entries.push(entry);
+  fs.writeFileSync(traceFile, JSON.stringify(entries, null, 2), 'utf-8');
+
+  output({
+    appended: true,
+    path: relPath,
+    entry_count: entries.length,
+  }, raw);
+}
+
 // ─── Roadmap Analysis ─────────────────────────────────────────────────────────
 
 function cmdRoadmapAnalyze(cwd, raw) {
@@ -5001,8 +5104,10 @@ async function main() {
         cmdVerifyArtifacts(cwd, args[2], raw);
       } else if (subcommand === 'key-links') {
         cmdVerifyKeyLinks(cwd, args[2], raw);
+      } else if (subcommand === 'plan-steps') {
+        cmdVerifyPlanSteps(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, plan-steps');
       }
       break;
     }
@@ -5232,6 +5337,31 @@ async function main() {
         limit: limitIdx !== -1 ? parseInt(args[limitIdx + 1], 10) : 10,
         freshness: freshnessIdx !== -1 ? args[freshnessIdx + 1] : null,
       }, raw);
+      break;
+    }
+
+    case 'trace': {
+      const subcommand = args[1];
+      if (subcommand === 'append') {
+        const phaseIdx = args.indexOf('--phase');
+        const planIdx = args.indexOf('--plan');
+        const taskIdx = args.indexOf('--task');
+        const stepIdx = args.indexOf('--step');
+        const durationIdx = args.indexOf('--duration');
+        const commitIdx = args.indexOf('--commit');
+        const statusIdx = args.indexOf('--status');
+        cmdTraceAppend(cwd, {
+          phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
+          plan: planIdx !== -1 ? args[planIdx + 1] : null,
+          task: taskIdx !== -1 ? args[taskIdx + 1] : null,
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          duration: durationIdx !== -1 ? args[durationIdx + 1] : null,
+          commit: commitIdx !== -1 ? args[commitIdx + 1] : null,
+          status: statusIdx !== -1 ? args[statusIdx + 1] : null,
+        }, raw);
+      } else {
+        error('Unknown trace subcommand. Available: append');
+      }
       break;
     }
 
