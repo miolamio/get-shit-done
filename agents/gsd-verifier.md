@@ -291,7 +291,93 @@ grep -n -B 2 -A 2 "console\.log" "$file" 2>/dev/null | grep -E "^\s*(const|funct
 
 Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ Info (notable)
 
-## Step 8: Identify Human Verification Needs
+## Step 8: UI Verification (Conditional)
+
+**Skip if:** `config.playwright.enabled === false` OR project has no web framework detected
+**Detect web framework:** Check for `next.config.*`, `vite.config.*`, `nuxt.config.*`, `angular.json`, `index.html` in project root
+
+```bash
+# Check playwright config
+PLAYWRIGHT_ENABLED=$(node ~/.claude/get-shit-done/bin/gsd-tools.cjs config get playwright.enabled 2>/dev/null || echo "false")
+
+# Detect web framework
+ls next.config.* vite.config.* nuxt.config.* angular.json index.html 2>/dev/null
+```
+
+If web project detected AND playwright enabled:
+
+1. Start dev server: `{config.playwright.dev_server_command}`
+2. Wait for server ready (poll `{config.playwright.base_url}` until 200)
+
+```bash
+DEV_CMD=$(node ~/.claude/get-shit-done/bin/gsd-tools.cjs config get playwright.dev_server_command 2>/dev/null)
+BASE_URL=$(node ~/.claude/get-shit-done/bin/gsd-tools.cjs config get playwright.base_url 2>/dev/null || echo "http://localhost:3000")
+
+# Start dev server in background
+$DEV_CMD &
+DEV_PID=$!
+
+# Poll until ready (max 30s)
+for i in $(seq 1 30); do
+  curl -s -o /dev/null -w "%{http_code}" "$BASE_URL" 2>/dev/null | grep -q "200" && break
+  sleep 1
+done
+```
+
+3. For each key route (from router config or discovered endpoints):
+   - `playwright-cli snapshot {base_url}{route}` → save to `.planning/snapshots/{phase}-{route-slug}-snapshot.yaml`
+   - `playwright-cli screenshot {base_url}{route}` → save to `.planning/snapshots/{phase}-{route-slug}.png`
+
+```bash
+mkdir -p .planning/snapshots
+
+# For each route:
+npx playwright-cli snapshot "$BASE_URL$ROUTE" > ".planning/snapshots/${PHASE_NUM}-${ROUTE_SLUG}-snapshot.yaml"
+npx playwright-cli screenshot "$BASE_URL$ROUTE" --path ".planning/snapshots/${PHASE_NUM}-${ROUTE_SLUG}.png"
+```
+
+4. Analyze snapshots:
+   - Empty containers (no children in main content areas)
+   - Error text ("Error", "500", "undefined", "null" visible)
+   - Missing navigation (no nav/header elements)
+
+```bash
+# Check for error indicators in snapshots
+grep -E "Error|500|undefined|null" .planning/snapshots/*-snapshot.yaml 2>/dev/null
+
+# Check for empty main content areas
+grep -A 2 -E "role=\"main\"|<main" .planning/snapshots/*-snapshot.yaml 2>/dev/null | grep "children: \[\]"
+
+# Check for missing navigation
+grep -E "role=\"navigation\"|<nav|<header" .planning/snapshots/*-snapshot.yaml 2>/dev/null
+```
+
+5. Kill dev server
+
+```bash
+kill $DEV_PID 2>/dev/null
+```
+
+6. Add UI section to VERIFICATION.md:
+
+```markdown
+## UI Verification
+Routes checked: [list]
+Issues: [list or "none"]
+Screenshots: .planning/snapshots/
+```
+
+**Requires:** `playwright-cli` installed in project (`npx playwright-cli` or global). If not found, skip with warning.
+
+```bash
+# Check if playwright-cli is available
+npx playwright-cli --version 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "WARNING: playwright-cli not found. Skipping UI verification."
+fi
+```
+
+## Step 9: Identify Human Verification Needs
 
 **Always needs human:** Visual appearance, user flow completion, real-time behavior, external service integration, performance feel, error message clarity.
 
@@ -307,7 +393,7 @@ Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ 
 **Why human:** {Why can't verify programmatically}
 ```
 
-## Step 9: Determine Overall Status
+## Step 10: Determine Overall Status
 
 **Status: passed** — All truths VERIFIED, all artifacts pass levels 1-3, all key links WIRED, no blocker anti-patterns.
 
@@ -317,7 +403,7 @@ Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ 
 
 **Score:** `verified_truths / total_truths`
 
-## Step 10: Structure Gap Output (If Gaps Found)
+## Step 11: Structure Gap Output (If Gaps Found)
 
 Structure gaps in YAML frontmatter for `/gsd:plan-phase --gaps`:
 
@@ -417,6 +503,17 @@ human_verification: # Only if status: human_needed
 
 | File | Line | Pattern | Severity | Impact |
 | ---- | ---- | ------- | -------- | ------ |
+
+### UI Verification
+
+{If web project detected AND playwright enabled:}
+
+Routes checked: [list of routes]
+Issues: [list or "none"]
+Screenshots: .planning/snapshots/
+
+{If skipped:}
+_Skipped: {reason — no web framework detected | playwright disabled | playwright-cli not found}_
 
 ### Human Verification Required
 
@@ -546,6 +643,7 @@ return <div>No messages</div>  // Always shows "no messages"
 - [ ] All key links verified
 - [ ] Requirements coverage assessed (if applicable)
 - [ ] Anti-patterns scanned and categorized
+- [ ] UI verification performed (if web project with playwright enabled) or skipped with reason
 - [ ] Human verification items identified
 - [ ] Overall status determined
 - [ ] Gaps structured in YAML frontmatter (if gaps_found)

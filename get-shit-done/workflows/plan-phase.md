@@ -144,6 +144,32 @@ Task(
 - **`## RESEARCH COMPLETE`:** Display confirmation, continue to step 6
 - **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort
 
+## 5.5. Check Available Skills (Optional)
+
+If research was completed (Step 5) and `research_content` contains technology mentions:
+
+1. Extract technology keywords from RESEARCH.md (e.g., framework names, libraries, databases).
+2. Search for relevant skills:
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.cjs skills search "{keywords}"
+   ```
+3. **If relevant skills found and not already installed:** Suggest to user:
+   ```
+   AskUserQuestion([
+     {
+       header: "Skills",
+       question: "Found skills matching technologies in research: {matched_technologies}. Install before planning?",
+       multiSelect: false,
+       options: [
+         { label: "Install", description: "Install matching skills to improve planning quality" },
+         { label: "Skip", description: "Continue to planning without additional skills" }
+       ]
+     }
+   ])
+   ```
+4. **If "Install":** Run scan + install for approved skills, then continue to step 6.
+5. **If "Skip" or no results found:** Continue to step 6.
+
 ## 6. Check Existing Plans
 
 ```bash

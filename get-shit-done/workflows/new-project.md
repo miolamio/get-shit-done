@@ -746,6 +746,34 @@ Files: `.planning/research/`
 
 **If "Skip research":** Continue to Step 7.
 
+## 6.5. Skill Discovery (Optional)
+
+If a tech stack was identified (from research STACK.md, PROJECT.md, or user responses):
+
+1. Extract technology keywords from available context (e.g., React, PostgreSQL, Express, etc.)
+2. Search for matching skills:
+   ```bash
+   node ~/.claude/get-shit-done/bin/gsd-tools.cjs skills search-by-stack
+   ```
+3. **If results found:** Present to user:
+   ```
+   AskUserQuestion([
+     {
+       header: "Skills",
+       question: "Found skills for {technologies}. Install relevant skills?",
+       multiSelect: false,
+       options: [
+         { label: "Install", description: "Scan and install matching skills" },
+         { label: "Skip", description: "Continue without installing skills" }
+       ]
+     }
+   ])
+   ```
+4. **If "Install":** Run scan + install for approved skills.
+5. **If "Skip" or no results found:** Continue to requirements.
+
+**If auto mode:** Skip skill discovery (non-essential for auto flow).
+
 ## 7. Define Requirements
 
 Display stage banner:

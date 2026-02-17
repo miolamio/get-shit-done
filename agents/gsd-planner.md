@@ -160,17 +160,46 @@ Every task has four required fields:
 
 ## Task Sizing
 
-Each task: **15-60 minutes** Claude execution time.
+Each task: **5-15 minutes** Claude execution time.
 
 | Duration | Action |
 |----------|--------|
-| < 15 min | Too small — combine with related task |
-| 15-60 min | Right size |
-| > 60 min | Too large — split |
+| < 5 min | Too small — combine with related task |
+| 5-15 min | Right size |
+| > 15 min | Too large — split |
 
-**Too large signals:** Touches >3-5 files, multiple distinct chunks, action section >1 paragraph.
+**Sizing rules:**
+- **Max 5 files per task** — a task touching >5 files should be split
+- **ONE concern per task** — each task does one thing well
+- **Action brevity** — a task with >1 paragraph in `<action>` should be split
+
+**Too large signals:** Touches >5 files, multiple distinct chunks, action section >1 paragraph.
 
 **Combine signals:** One task sets up for the next, separate tasks touch same file, neither meaningful alone.
+
+## Optional Steps for TDD Tasks
+
+Tasks with `tdd="true"` can include an optional `<steps>` element to guide the executor through Red-Green-Refactor. Steps are OPTIONAL — the executor handles tasks with or without steps.
+
+```xml
+<task type="auto" tdd="true">
+  <name>Task 1: Implement validation logic</name>
+  <files>src/validate.ts, src/validate.test.ts</files>
+  <action>Implement email validation with RFC 5322 rules</action>
+  <steps>
+    <step name="red" verify="{test command} fails">Write failing test for email validation</step>
+    <step name="green" verify="{test command} passes">Implement minimal code to pass</step>
+    <step name="refactor" verify="{test command} passes">Clean up implementation</step>
+  </steps>
+  <verify>npm test passes</verify>
+  <done>Email validation works for valid and invalid inputs</done>
+</task>
+```
+
+**Step fields:**
+- `name`: Phase of TDD cycle — `red`, `green`, or `refactor`
+- `verify`: Command that confirms the step outcome (fails for red, passes for green/refactor)
+- Step body: What the executor should do in this step
 
 ## Specificity Examples
 
@@ -210,6 +239,38 @@ For each external service, determine:
 Record in `user_setup` frontmatter. Only include what Claude literally cannot do. Do NOT surface in planning output — execute-plan handles presentation.
 
 </task_breakdown>
+
+<e2e_test_generation>
+
+### E2E Test Generation (UI Phases)
+
+When phase contains UI requirements (keywords: "page", "form", "dashboard", "component", "layout", "UI", "frontend") AND `config.playwright.e2e_generation === true`:
+
+Generate an additional task at the END of the last plan:
+
+```xml
+<task type="auto" tdd="true">
+  <name>Generate E2E tests for {feature}</name>
+  <files>tests/e2e/{feature-slug}.spec.ts</files>
+  <steps>
+    <step name="plan" verify="test plan file exists">
+      Use Playwright Planner to explore running app and generate test plan
+    </step>
+    <step name="generate" verify="npx playwright test compiles">
+      Convert test plan into Playwright TypeScript tests
+    </step>
+    <step name="validate" verify="npx playwright test passes">
+      Run generated tests, fix broken selectors
+    </step>
+  </steps>
+  <verify>npx playwright test passes</verify>
+  <done>E2E tests cover {feature} happy path and error cases</done>
+</task>
+```
+
+This task ALWAYS goes in the LAST wave (depends on all other plans in phase).
+
+</e2e_test_generation>
 
 <dependency_graph>
 

@@ -43,6 +43,6 @@
   "scripts": {
     "build:hooks": "node scripts/build-hooks.js",
     "prepublishOnly": "npm run build:hooks",
-    "test": "node --test get-shit-done/bin/gsd-tools.test.js"
+    "test": "node --test get-shit-done/bin/gsd-tools.test.cjs test/install.test.cjs test/gsd-tools-extra.test.cjs test/steps.test.cjs test/skills.test.cjs test/playwright-config.test.cjs"
   }
 }

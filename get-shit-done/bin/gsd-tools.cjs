@@ -631,11 +631,20 @@ function cmdConfigEnsureSection(cwd, raw) {
     },
     parallelization: true,
     brave_search: hasBraveSearch,
+    playwright: {
+      enabled: false,
+      ui_verification: true,
+      e2e_generation: true,
+      dev_server_command: 'npm run dev',
+      dev_server_port: 3000,
+      base_url: 'http://localhost:3000',
+    },
   };
   const defaults = {
     ...hardcoded,
     ...userDefaults,
     workflow: { ...hardcoded.workflow, ...(userDefaults.workflow || {}) },
+    playwright: { ...hardcoded.playwright, ...(userDefaults.playwright || {}) },
   };
 
   try {
@@ -2532,6 +2541,109 @@ function cmdVerifyKeyLinks(cwd, planFilePath, raw) {
   }, raw, verified === results.length ? 'valid' : 'invalid');
 }
 
+// ─── Verify Plan Steps ────────────────────────────────────────────────────────
+
+function cmdVerifyPlanSteps(cwd, planPath, raw) {
+  if (!planPath) { error('plan file path required'); }
+  const fullPath = path.isAbsolute(planPath) ? planPath : path.join(cwd, planPath);
+  const content = safeReadFile(fullPath);
+  if (!content) { output({ error: 'File not found', path: planPath }, raw); return; }
+  const errors = [];
+  const tasks = [];
+
+  // Parse <task> elements (same regex pattern as cmdVerifyPlanStructure)
+  const taskPattern = /<task[^>]*>([\s\S]*?)<\/task>/g;
+  let taskMatch;
+  while ((taskMatch = taskPattern.exec(content)) !== null) {
+    const taskContent = taskMatch[1];
+    const nameMatch = taskContent.match(/<name>([\s\S]*?)<\/name>/);
+    const taskName = nameMatch ? nameMatch[1].trim() : 'unnamed';
+
+    const steps = [];
+
+    // Parse optional <steps> block inside the task
+    const stepsBlockMatch = taskContent.match(/<steps>([\s\S]*?)<\/steps>/);
+    if (stepsBlockMatch) {
+      const stepsContent = stepsBlockMatch[1];
+      // Parse individual <step> elements
+      const stepPattern = /<step([^>]*)>([\s\S]*?)<\/step>/g;
+      let stepMatch;
+      while ((stepMatch = stepPattern.exec(stepsContent)) !== null) {
+        const attrs = stepMatch[1];
+        const stepContent = stepMatch[2].trim();
+
+        // Extract name attribute
+        const nameAttr = attrs.match(/name=["']([^"']+)["']/);
+        // Extract verify attribute
+        const verifyAttr = attrs.match(/verify=["']([^"']+)["']/);
+
+        if (!nameAttr) {
+          errors.push(`Task '${taskName}': step missing required 'name' attribute`);
+        }
+
+        steps.push({
+          name: nameAttr ? nameAttr[1] : null,
+          verify: verifyAttr ? verifyAttr[1] : null,
+          content: stepContent,
+        });
+      }
+    }
+
+    tasks.push({ name: taskName, steps });
+  }
+
+  output({
+    valid: errors.length === 0,
+    errors,
+    task_count: tasks.length,
+    tasks,
+  }, raw, errors.length === 0 ? 'valid' : 'invalid');
+}
+
+// ─── Trace Append ─────────────────────────────────────────────────────────────
+
+function cmdTraceAppend(cwd, options, raw) {
+  if (!options.phase) { error('--phase required for trace append'); }
+  if (!options.plan) { error('--plan required for trace append'); }
+  if (!options.task) { error('--task required for trace append'); }
+  if (!options.status) { error('--status required for trace append'); }
+
+  const tracesDir = path.join(cwd, '.planning', 'phases', options.phase, 'traces');
+  fs.mkdirSync(tracesDir, { recursive: true });
+
+  const traceFile = path.join(tracesDir, `${options.plan}-trace.json`);
+  const relPath = path.relative(cwd, traceFile);
+
+  // Read existing trace entries or start fresh
+  let entries = [];
+  if (fs.existsSync(traceFile)) {
+    try {
+      entries = JSON.parse(fs.readFileSync(traceFile, 'utf-8'));
+    } catch {
+      entries = [];
+    }
+  }
+
+  // Build trace entry
+  const entry = {
+    timestamp: new Date().toISOString(),
+    task: options.task,
+    step: options.step || null,
+    duration: options.duration ? parseInt(options.duration, 10) : null,
+    commit: options.commit || null,
+    status: options.status,
+  };
+
+  entries.push(entry);
+  fs.writeFileSync(traceFile, JSON.stringify(entries, null, 2), 'utf-8');
+
+  output({
+    appended: true,
+    path: relPath,
+    entry_count: entries.length,
+  }, raw);
+}
+
 // ─── Roadmap Analysis ─────────────────────────────────────────────────────────
 
 function cmdRoadmapAnalyze(cwd, raw) {
@@ -3751,6 +3863,14 @@ function cmdValidateHealth(cwd, options, raw) {
               plan_checker: true,
               verifier: true,
               parallelization: true,
+              playwright: {
+                enabled: false,
+                ui_verification: true,
+                e2e_generation: true,
+                dev_server_command: 'npm run dev',
+                dev_server_port: 3000,
+                base_url: 'http://localhost:3000',
+              },
             };
             fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
             repairActions.push({ action: repair, success: true, path: 'config.json' });
@@ -4834,6 +4954,392 @@ function cmdInitProgress(cwd, includes, raw) {
   output(result, raw);
 }
 
+// ─── Skills Module ────────────────────────────────────────────────────────────
+
+/**
+ * Suspicious patterns for skill security scanning.
+ * Each entry: { pattern: RegExp, label: string, severity: 'high'|'medium' }
+ */
+const SKILL_SUSPICIOUS_PATTERNS = [
+  { pattern: /\bcurl\b/gi, label: 'curl', severity: 'high' },
+  { pattern: /\bwget\b/gi, label: 'wget', severity: 'high' },
+  { pattern: /\beval\s*\(/gi, label: 'eval(', severity: 'high' },
+  { pattern: /\bexec\s*\(/gi, label: 'exec(', severity: 'high' },
+  { pattern: /\bprocess\.env\b/gi, label: 'process.env', severity: 'medium' },
+  { pattern: /\.env\b/gi, label: '.env', severity: 'medium' },
+  { pattern: /\brm\s+-rf\b/gi, label: 'rm -rf', severity: 'high' },
+  { pattern: /\bchmod\b/gi, label: 'chmod', severity: 'medium' },
+  { pattern: /\bexfil/gi, label: 'exfil', severity: 'high' },
+  { pattern: /POST\s+https?:\/\//gi, label: 'POST to external URL', severity: 'high' },
+];
+
+/** Dangerous tool combinations that raise medium risk. */
+const DANGEROUS_TOOL_COMBOS = [
+  { tools: ['Bash', 'WebFetch'], label: 'Bash+WebFetch: can execute arbitrary commands and exfiltrate data' },
+];
+
+/**
+ * Recursively collect all .md files in a directory.
+ */
+function collectMdFiles(dir) {
+  const results = [];
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return results;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectMdFiles(fullPath));
+    } else if (entry.name.endsWith('.md')) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+/**
+ * Scan a skill directory for security risks.
+ * Returns { risk, findings, tool_audit, files_scanned }
+ */
+function scanSkillDirectory(skillPath) {
+  const mdFiles = collectMdFiles(skillPath);
+  if (mdFiles.length === 0) {
+    return { risk: 'low', findings: [], tool_audit: { tools: [], dangerous_combinations: [] }, files_scanned: 0 };
+  }
+
+  const findings = [];
+  const allTools = new Set();
+
+  for (const filePath of mdFiles) {
+    const content = safeReadFile(filePath);
+    if (!content) continue;
+    const relPath = path.relative(skillPath, filePath);
+
+    // Extract tools from frontmatter
+    const fm = extractFrontmatter(content);
+    if (fm.tools) {
+      const toolList = Array.isArray(fm.tools) ? fm.tools : [fm.tools];
+      toolList.forEach(t => allTools.add(t));
+    }
+
+    // Scan for suspicious patterns
+    for (const { pattern, label, severity } of SKILL_SUSPICIOUS_PATTERNS) {
+      // Reset lastIndex for global regexes
+      pattern.lastIndex = 0;
+      if (pattern.test(content)) {
+        findings.push({
+          file: relPath,
+          pattern: label,
+          severity,
+          description: `Detected '${label}' in ${relPath}`,
+        });
+      }
+    }
+
+    // Check for base64-like strings > 100 chars (contiguous alphanumeric+/+=)
+    const base64Matches = content.match(/[A-Za-z0-9+/=]{100,}/g);
+    if (base64Matches) {
+      for (const match of base64Matches) {
+        findings.push({
+          file: relPath,
+          pattern: 'base64_long_string',
+          severity: 'medium',
+          description: `Suspicious base64-like string (${match.length} chars) in ${relPath}`,
+        });
+      }
+    }
+  }
+
+  // Check tool combinations
+  const toolArray = Array.from(allTools);
+  const dangerousCombos = [];
+  for (const combo of DANGEROUS_TOOL_COMBOS) {
+    if (combo.tools.every(t => allTools.has(t))) {
+      dangerousCombos.push(combo.label);
+    }
+  }
+
+  // Calculate risk level
+  const hasHighSeverity = findings.some(f => f.severity === 'high');
+  const hasMediumSeverity = findings.some(f => f.severity === 'medium');
+  const hasDangerousCombos = dangerousCombos.length > 0;
+
+  let risk = 'low';
+  if (hasHighSeverity) {
+    risk = 'high';
+  } else if (hasMediumSeverity || hasDangerousCombos) {
+    risk = 'medium';
+  }
+
+  return {
+    risk,
+    findings,
+    tool_audit: {
+      tools: toolArray,
+      dangerous_combinations: dangerousCombos,
+    },
+    files_scanned: mdFiles.length,
+  };
+}
+
+function cmdSkillsScan(cwd, skillPath, raw) {
+  if (!skillPath) {
+    error('Skill path required. Usage: gsd-tools skills scan <path>');
+  }
+
+  const resolvedPath = path.isAbsolute(skillPath) ? skillPath : path.join(cwd, skillPath);
+  if (!fs.existsSync(resolvedPath)) {
+    error(`Skill path not found: ${resolvedPath}`);
+  }
+
+  const result = scanSkillDirectory(resolvedPath);
+  output(result, raw);
+}
+
+function cmdSkillsSearch(cwd, searchArgs, raw) {
+  // Check for --offline flag
+  const offlineIdx = searchArgs.indexOf('--offline');
+  if (offlineIdx !== -1) {
+    output({ results: [], mode: 'offline', message: 'Offline mode — no API queries made' }, raw);
+    return;
+  }
+
+  // Build query from remaining args
+  const query = searchArgs.filter(a => !a.startsWith('--')).join(' ');
+  if (!query) {
+    error('Search query required. Usage: gsd-tools skills search <query> [--offline]');
+  }
+
+  // HTTPS GET to skills API
+  const https = require('https');
+  const url = `https://claude-plugins.dev/api/skills?q=${encodeURIComponent(query)}`;
+
+  return new Promise((resolve) => {
+    const req = https.get(url, { timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const results = Array.isArray(parsed) ? parsed : (parsed.results || []);
+          output({ results, query, count: results.length }, raw);
+        } catch {
+          output({ results: [], query, error: 'Failed to parse API response' }, raw);
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', (err) => {
+      output({ results: [], query, error: `Network error: ${err.message}` }, raw);
+      resolve();
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      output({ results: [], query, error: 'Request timed out' }, raw);
+      resolve();
+    });
+  });
+}
+
+function cmdSkillsSearchByStack(cwd, searchArgs, raw) {
+  // Accept --stack flag or read from config
+  const stackIdx = searchArgs.indexOf('--stack');
+  let stack;
+
+  if (stackIdx !== -1 && searchArgs[stackIdx + 1]) {
+    stack = searchArgs[stackIdx + 1];
+  } else {
+    // Try reading tech stack from config
+    const config = loadConfig(cwd);
+    stack = config.tech_stack || config.stack || null;
+  }
+
+  if (!stack) {
+    error('Tech stack not specified. Use --stack "react,node,typescript" or set tech_stack in config.json');
+  }
+
+  // Delegate to search with stack as query
+  const queryTerms = stack.split(',').map(s => s.trim()).filter(Boolean);
+  return cmdSkillsSearch(cwd, queryTerms, raw);
+}
+
+function cmdSkillsInfo(cwd, skillId, raw) {
+  if (!skillId) {
+    error('Skill ID required. Usage: gsd-tools skills info <skill-id>');
+  }
+
+  const https = require('https');
+  const url = `https://claude-plugins.dev/api/skills/${encodeURIComponent(skillId)}`;
+
+  return new Promise((resolve) => {
+    const req = https.get(url, { timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const info = JSON.parse(data);
+          output(info, raw);
+        } catch {
+          output({ error: 'Failed to parse API response', skill_id: skillId }, raw);
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', (err) => {
+      output({ error: `Network error: ${err.message}`, skill_id: skillId }, raw);
+      resolve();
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      output({ error: 'Request timed out', skill_id: skillId }, raw);
+      resolve();
+    });
+  });
+}
+
+function cmdSkillsList(cwd, raw) {
+  const installedPath = path.join(cwd, '.planning', 'installed-skills.json');
+  const content = safeReadFile(installedPath);
+
+  if (!content) {
+    output({ skills: [] }, raw);
+    return;
+  }
+
+  try {
+    const skills = JSON.parse(content);
+    output({ skills: Array.isArray(skills) ? skills : [] }, raw);
+  } catch {
+    output({ skills: [], error: 'Failed to parse installed-skills.json' }, raw);
+  }
+}
+
+function cmdSkillsInstall(cwd, installArgs, raw) {
+  const pathIdx = installArgs.indexOf('--path');
+  const nameIdx = installArgs.indexOf('--name');
+
+  let skillSource = null;
+  let skillName = null;
+
+  if (pathIdx !== -1 && installArgs[pathIdx + 1]) {
+    skillSource = installArgs[pathIdx + 1];
+    skillName = path.basename(skillSource);
+  } else if (nameIdx !== -1 && installArgs[nameIdx + 1]) {
+    skillName = installArgs[nameIdx + 1];
+    // For named skills, would fetch from API — not implemented in local mode
+    error('Remote skill install by name not yet supported. Use --path for local skills.');
+  } else {
+    // Check if first non-flag arg is a path
+    const nonFlagArgs = installArgs.filter(a => !a.startsWith('--'));
+    if (nonFlagArgs.length > 0 && fs.existsSync(path.isAbsolute(nonFlagArgs[0]) ? nonFlagArgs[0] : path.join(cwd, nonFlagArgs[0]))) {
+      skillSource = nonFlagArgs[0];
+      skillName = path.basename(skillSource);
+    } else {
+      error('Skill path required. Usage: gsd-tools skills install --path <dir>');
+    }
+  }
+
+  const resolvedSource = path.isAbsolute(skillSource) ? skillSource : path.join(cwd, skillSource);
+
+  if (!fs.existsSync(resolvedSource)) {
+    error(`Skill source not found: ${resolvedSource}`);
+  }
+
+  // Security scan first
+  const scanResult = scanSkillDirectory(resolvedSource);
+  if (scanResult.risk === 'high') {
+    output({
+      installed: false,
+      name: skillName,
+      risk: 'high',
+      reason: 'Skill failed security scan — high risk patterns detected',
+      findings: scanResult.findings,
+    }, raw);
+    return;
+  }
+
+  // Check if already installed
+  const installedPath = path.join(cwd, '.planning', 'installed-skills.json');
+  let installed = [];
+  const existingContent = safeReadFile(installedPath);
+  if (existingContent) {
+    try { installed = JSON.parse(existingContent); } catch { installed = []; }
+  }
+
+  const alreadyInstalled = installed.find(s => s.name === skillName);
+  if (alreadyInstalled) {
+    output({ installed: true, name: skillName, message: 'Skill already installed', existing: true }, raw);
+    return;
+  }
+
+  // Copy skill files to .planning/skills/<name>/
+  const destDir = path.join(cwd, '.planning', 'skills', skillName);
+  fs.mkdirSync(destDir, { recursive: true });
+
+  const mdFiles = collectMdFiles(resolvedSource);
+  for (const srcFile of mdFiles) {
+    const relPath = path.relative(resolvedSource, srcFile);
+    const destFile = path.join(destDir, relPath);
+    fs.mkdirSync(path.dirname(destFile), { recursive: true });
+    fs.copyFileSync(srcFile, destFile);
+  }
+
+  // Update installed-skills.json
+  installed.push({
+    name: skillName,
+    installed_at: new Date().toISOString(),
+    path: path.relative(cwd, destDir),
+    risk: scanResult.risk,
+    files: mdFiles.length,
+  });
+
+  fs.writeFileSync(installedPath, JSON.stringify(installed, null, 2), 'utf-8');
+
+  output({
+    installed: true,
+    name: skillName,
+    risk: scanResult.risk,
+    path: path.relative(cwd, destDir),
+    files_copied: mdFiles.length,
+  }, raw);
+}
+
+function cmdSkillsUninstall(cwd, skillName, raw) {
+  if (!skillName) {
+    error('Skill name required. Usage: gsd-tools skills uninstall <name>');
+  }
+
+  const installedPath = path.join(cwd, '.planning', 'installed-skills.json');
+  let installed = [];
+  const existingContent = safeReadFile(installedPath);
+  if (existingContent) {
+    try { installed = JSON.parse(existingContent); } catch { installed = []; }
+  }
+
+  const skillIndex = installed.findIndex(s => s.name === skillName);
+  if (skillIndex === -1) {
+    output({ removed: false, name: skillName, reason: 'Skill not found in installed list' }, raw);
+    return;
+  }
+
+  const skill = installed[skillIndex];
+
+  // Remove skill files
+  const skillDir = path.join(cwd, '.planning', 'skills', skillName);
+  if (fs.existsSync(skillDir)) {
+    fs.rmSync(skillDir, { recursive: true, force: true });
+  }
+
+  // Update installed-skills.json
+  installed.splice(skillIndex, 1);
+  fs.writeFileSync(installedPath, JSON.stringify(installed, null, 2), 'utf-8');
+
+  output({ removed: true, name: skillName }, raw);
+}
+
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
 async function main() {
@@ -5001,8 +5507,10 @@ async function main() {
         cmdVerifyArtifacts(cwd, args[2], raw);
       } else if (subcommand === 'key-links') {
         cmdVerifyKeyLinks(cwd, args[2], raw);
+      } else if (subcommand === 'plan-steps') {
+        cmdVerifyPlanSteps(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links');
+        error('Unknown verify subcommand. Available: plan-structure, phase-completeness, references, commits, artifacts, key-links, plan-steps');
       }
       break;
     }
@@ -5232,6 +5740,53 @@ async function main() {
         limit: limitIdx !== -1 ? parseInt(args[limitIdx + 1], 10) : 10,
         freshness: freshnessIdx !== -1 ? args[freshnessIdx + 1] : null,
       }, raw);
+      break;
+    }
+
+    case 'trace': {
+      const subcommand = args[1];
+      if (subcommand === 'append') {
+        const phaseIdx = args.indexOf('--phase');
+        const planIdx = args.indexOf('--plan');
+        const taskIdx = args.indexOf('--task');
+        const stepIdx = args.indexOf('--step');
+        const durationIdx = args.indexOf('--duration');
+        const commitIdx = args.indexOf('--commit');
+        const statusIdx = args.indexOf('--status');
+        cmdTraceAppend(cwd, {
+          phase: phaseIdx !== -1 ? args[phaseIdx + 1] : null,
+          plan: planIdx !== -1 ? args[planIdx + 1] : null,
+          task: taskIdx !== -1 ? args[taskIdx + 1] : null,
+          step: stepIdx !== -1 ? args[stepIdx + 1] : null,
+          duration: durationIdx !== -1 ? args[durationIdx + 1] : null,
+          commit: commitIdx !== -1 ? args[commitIdx + 1] : null,
+          status: statusIdx !== -1 ? args[statusIdx + 1] : null,
+        }, raw);
+      } else {
+        error('Unknown trace subcommand. Available: append');
+      }
+      break;
+    }
+
+    case 'skills': {
+      const subcommand = args[1];
+      if (subcommand === 'search') {
+        await cmdSkillsSearch(cwd, args.slice(2), raw);
+      } else if (subcommand === 'search-by-stack') {
+        await cmdSkillsSearchByStack(cwd, args.slice(2), raw);
+      } else if (subcommand === 'info') {
+        await cmdSkillsInfo(cwd, args[2], raw);
+      } else if (subcommand === 'scan') {
+        cmdSkillsScan(cwd, args[2], raw);
+      } else if (subcommand === 'install') {
+        cmdSkillsInstall(cwd, args.slice(2), raw);
+      } else if (subcommand === 'list') {
+        cmdSkillsList(cwd, raw);
+      } else if (subcommand === 'uninstall') {
+        cmdSkillsUninstall(cwd, args[2], raw);
+      } else {
+        error('Unknown skills subcommand. Available: search, search-by-stack, info, scan, install, list, uninstall');
+      }
       break;
     }
 
