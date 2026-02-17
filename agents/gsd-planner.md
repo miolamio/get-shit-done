@@ -240,6 +240,38 @@ Record in `user_setup` frontmatter. Only include what Claude literally cannot do
 
 </task_breakdown>
 
+<e2e_test_generation>
+
+### E2E Test Generation (UI Phases)
+
+When phase contains UI requirements (keywords: "page", "form", "dashboard", "component", "layout", "UI", "frontend") AND `config.playwright.e2e_generation === true`:
+
+Generate an additional task at the END of the last plan:
+
+```xml
+<task type="auto" tdd="true">
+  <name>Generate E2E tests for {feature}</name>
+  <files>tests/e2e/{feature-slug}.spec.ts</files>
+  <steps>
+    <step name="plan" verify="test plan file exists">
+      Use Playwright Planner to explore running app and generate test plan
+    </step>
+    <step name="generate" verify="npx playwright test compiles">
+      Convert test plan into Playwright TypeScript tests
+    </step>
+    <step name="validate" verify="npx playwright test passes">
+      Run generated tests, fix broken selectors
+    </step>
+  </steps>
+  <verify>npx playwright test passes</verify>
+  <done>E2E tests cover {feature} happy path and error cases</done>
+</task>
+```
+
+This task ALWAYS goes in the LAST wave (depends on all other plans in phase).
+
+</e2e_test_generation>
+
 <dependency_graph>
 
 ## Building the Dependency Graph

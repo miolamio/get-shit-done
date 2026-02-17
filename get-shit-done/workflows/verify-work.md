@@ -518,6 +518,16 @@ Plans verified and ready for execution.
 ```
 </step>
 
+<step name="playwright_ui_verification">
+### Playwright UI Verification (Conditional)
+
+If `config.playwright.enabled === true` AND web project detected:
+1. Start dev server via config.playwright.dev_server_command
+2. Run snapshot capture for key routes
+3. Analyze for visual regressions or errors
+4. Include results in verification report
+</step>
+
 </process>
 
 <update_rules>
