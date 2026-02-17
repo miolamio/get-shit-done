@@ -203,7 +203,9 @@ function expandTilde(filePath) {
 function buildHookCommand(configDir, hookName) {
   // Use forward slashes for Node.js compatibility on all platforms
   const hooksPath = configDir.replace(/\\/g, '/') + '/hooks/' + hookName;
-  return `node "${hooksPath}"`;
+  // Guard with file existence check so missing hooks fail silently instead of
+  // showing "SessionStart:startup hook error" to the user
+  return `node -e "require('fs').existsSync('${hooksPath}')&&require('${hooksPath}')"`;
 }
 
 /**
@@ -1524,12 +1526,9 @@ function install(isGlobal, runtime = 'claude') {
   // Gemini shares same hook system as Claude Code for now
   const settingsPath = path.join(targetDir, 'settings.json');
   const settings = cleanupOrphanedHooks(readSettings(settingsPath));
-  const statuslineCommand = isGlobal
-    ? buildHookCommand(targetDir, 'gsd-statusline.js')
-    : 'node ' + dirName + '/hooks/gsd-statusline.js';
-  const updateCheckCommand = isGlobal
-    ? buildHookCommand(targetDir, 'gsd-check-update.js')
-    : 'node ' + dirName + '/hooks/gsd-check-update.js';
+  const hookDir = isGlobal ? targetDir : dirName;
+  const statuslineCommand = buildHookCommand(hookDir, 'gsd-statusline.js');
+  const updateCheckCommand = buildHookCommand(hookDir, 'gsd-check-update.js');
 
   // Enable experimental agents for Gemini CLI (required for custom sub-agents)
   if (isGemini) {
