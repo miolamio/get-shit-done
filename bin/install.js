@@ -203,9 +203,11 @@ function expandTilde(filePath) {
 function buildHookCommand(configDir, hookName) {
   // Use forward slashes for Node.js compatibility on all platforms
   const hooksPath = configDir.replace(/\\/g, '/') + '/hooks/' + hookName;
+  // require() needs './' prefix for relative paths (absolute paths work as-is)
+  const requirePath = path.isAbsolute(hooksPath) ? hooksPath : './' + hooksPath;
   // Guard with file existence check so missing hooks fail silently instead of
   // showing "SessionStart:startup hook error" to the user
-  return `node -e "require('fs').existsSync('${hooksPath}')&&require('${hooksPath}')"`;
+  return `node -e "require('fs').existsSync('${hooksPath}')&&require('${requirePath}')"`;
 }
 
 /**
