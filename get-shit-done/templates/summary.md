@@ -74,6 +74,14 @@ Each task was committed atomically:
 
 _Note: TDD tasks may have multiple commits (test → feat → refactor)_
 
+## Step Traces (if steps used)
+
+| Task | Step | Duration | Commit | Status |
+|------|------|----------|--------|--------|
+| Task 1: Validation | red | 12s | abc123 | pass |
+| Task 1: Validation | green | 45s | def456 | pass |
+| Task 1: Validation | refactor | 18s | ghi789 | pass |
+
 ## Files Created/Modified
 - `path/to/file.ts` - What it does
 - `path/to/another.ts` - What it does

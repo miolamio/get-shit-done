@@ -303,6 +303,27 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 **5. Record hash:** `TASK_COMMIT=$(git rev-parse --short HEAD)` — track for SUMMARY.
 </task_commit_protocol>
 
+<step_level_execution>
+### Step-Level Execution (when <steps> present)
+
+If a task contains `<steps>`:
+
+1. For EACH step in order:
+   a. Execute step content
+   b. Run step `verify` command
+   c. If verify passes: commit with step-appropriate type
+      - `name="red"` → `test({phase}-{plan}): {description}`
+      - `name="green"` → `feat({phase}-{plan}): {description}`
+      - `name="refactor"` → `refactor({phase}-{plan}): {description}`
+      - Other → `feat({phase}-{plan}): {step name} — {description}`
+   d. Record trace: `node gsd-tools.cjs trace append --phase {P} --plan {N} --task {T} --step {name} --duration {Xs} --commit {hash} --status pass`
+   e. If verify fails after 3 attempts: mark step failed, document in SUMMARY
+
+2. If NO `<steps>` → execute task as before (single commit per task)
+
+This is backward-compatible: old plans without steps work unchanged.
+</step_level_execution>
+
 <summary_creation>
 After all tasks complete, create `{phase}-{plan}-SUMMARY.md` at `.planning/phases/XX-name/`.
 
