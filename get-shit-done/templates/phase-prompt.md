@@ -76,6 +76,20 @@ Output: [What artifacts will be created]
   <done>[Acceptance criteria]</done>
 </task>
 
+<!-- Optional: TDD tasks can include <steps> for Red-Green-Refactor guidance -->
+<task type="auto" tdd="true">
+  <name>Task 3: [TDD task name]</name>
+  <files>src/feature.ts, src/feature.test.ts</files>
+  <action>[What to implement]</action>
+  <steps>
+    <step name="red" verify="{test command} fails">Write failing test</step>
+    <step name="green" verify="{test command} passes">Implement minimal code</step>
+    <step name="refactor" verify="{test command} passes">Clean up</step>
+  </steps>
+  <verify>[Test command]</verify>
+  <done>[Acceptance criteria]</done>
+</task>
+
 <!-- For checkpoint task examples and patterns, see @~/.claude/get-shit-done/references/checkpoints.md -->
 <!-- Key rule: Claude starts dev server BEFORE human-verify checkpoints. User only visits URLs. -->
 

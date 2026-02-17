@@ -160,17 +160,46 @@ Every task has four required fields:
 
 ## Task Sizing
 
-Each task: **15-60 minutes** Claude execution time.
+Each task: **5-15 minutes** Claude execution time.
 
 | Duration | Action |
 |----------|--------|
-| < 15 min | Too small — combine with related task |
-| 15-60 min | Right size |
-| > 60 min | Too large — split |
+| < 5 min | Too small — combine with related task |
+| 5-15 min | Right size |
+| > 15 min | Too large — split |
 
-**Too large signals:** Touches >3-5 files, multiple distinct chunks, action section >1 paragraph.
+**Sizing rules:**
+- **Max 5 files per task** — a task touching >5 files should be split
+- **ONE concern per task** — each task does one thing well
+- **Action brevity** — a task with >1 paragraph in `<action>` should be split
+
+**Too large signals:** Touches >5 files, multiple distinct chunks, action section >1 paragraph.
 
 **Combine signals:** One task sets up for the next, separate tasks touch same file, neither meaningful alone.
+
+## Optional Steps for TDD Tasks
+
+Tasks with `tdd="true"` can include an optional `<steps>` element to guide the executor through Red-Green-Refactor. Steps are OPTIONAL — the executor handles tasks with or without steps.
+
+```xml
+<task type="auto" tdd="true">
+  <name>Task 1: Implement validation logic</name>
+  <files>src/validate.ts, src/validate.test.ts</files>
+  <action>Implement email validation with RFC 5322 rules</action>
+  <steps>
+    <step name="red" verify="{test command} fails">Write failing test for email validation</step>
+    <step name="green" verify="{test command} passes">Implement minimal code to pass</step>
+    <step name="refactor" verify="{test command} passes">Clean up implementation</step>
+  </steps>
+  <verify>npm test passes</verify>
+  <done>Email validation works for valid and invalid inputs</done>
+</task>
+```
+
+**Step fields:**
+- `name`: Phase of TDD cycle — `red`, `green`, or `refactor`
+- `verify`: Command that confirms the step outcome (fails for red, passes for green/refactor)
+- Step body: What the executor should do in this step
 
 ## Specificity Examples
 
