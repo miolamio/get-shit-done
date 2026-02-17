@@ -623,6 +623,37 @@ Confirm: "Committed: chore: complete v[X.Y] milestone"
 
 </step>
 
+<step name="generate_docs">
+
+**Generate documentation for the milestone:**
+
+Spawn the `gsd-doc-generator` agent with full milestone scope to auto-generate project documentation.
+
+The agent should generate/update:
+- **README.md** — Updated project overview reflecting shipped milestone
+- **docs/api/** — API documentation extracted from source code
+- **CHANGELOG.md** — Changelog entries for all phases in this milestone
+- **docs/adr/** — Architecture Decision Records from milestone decisions
+- **docs/diagrams/** — Architecture and flow diagrams
+
+```bash
+# Commit generated documentation
+node ~/.claude/get-shit-done/bin/gsd-tools.cjs commit "docs: generate documentation for v[X.Y]" --files README.md CHANGELOG.md docs/
+```
+
+Report:
+
+```
+Documentation generated:
+✓ README.md updated
+✓ docs/api/ generated
+✓ CHANGELOG.md updated
+✓ docs/adr/ generated
+✓ docs/diagrams/ generated
+```
+
+</step>
+
 <step name="offer_next">
 
 ```

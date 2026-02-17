@@ -107,6 +107,12 @@ Output: Milestone archived (roadmap + requirements), PROJECT.md evolved, git tag
    - Tag: `git tag -a v{{version}} -m "[milestone summary]"`
    - Ask about pushing tag
 
+7.5. **Generate documentation:**
+   - Run documentation generation workflow
+   - Spawn `gsd-doc-generator` agent with full milestone scope
+   - Commit generated docs: `docs: generate documentation for v{{version}}`
+   - Report: "✓ README.md updated, ✓ docs/api/ generated, ✓ CHANGELOG.md updated, ✓ docs/adr/ generated, ✓ docs/diagrams/ generated"
+
 8. **Offer next steps:**
    - `/gsd:new-milestone` — start next milestone (questioning → research → requirements → roadmap)
 
